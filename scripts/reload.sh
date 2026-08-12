@@ -715,10 +715,13 @@ fi
 if [[ "${CMUX_DISABLE_AUTOMATIC_PACKAGE_RESOLUTION:-}" == "1" ]]; then
   XCODEBUILD_ARGS+=(-disableAutomaticPackageResolution)
 fi
+# User-facing label only. Bundle and directory names keep the cmux prefix so
+# the tag's derived data paths, sockets, and sibling scripts keep resolving.
+DISPLAY_APP_NAME="${APP_NAME/cmux/vmux}"
 if [[ -z "$TAG" ]]; then
   XCODEBUILD_ARGS+=(
-    INFOPLIST_KEY_CFBundleName="$APP_NAME"
-    INFOPLIST_KEY_CFBundleDisplayName="$APP_NAME"
+    INFOPLIST_KEY_CFBundleName="$DISPLAY_APP_NAME"
+    INFOPLIST_KEY_CFBundleDisplayName="$DISPLAY_APP_NAME"
   )
 fi
 XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
@@ -974,10 +977,10 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
   cp -R "$APP_PATH" "$TAG_APP_STAGING_PATH"
   INFO_PLIST="$TAG_APP_STAGING_PATH/Contents/Info.plist"
   if [[ -f "$INFO_PLIST" ]]; then
-    /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$INFO_PLIST" 2>/dev/null \
-      || /usr/libexec/PlistBuddy -c "Add :CFBundleName string $APP_NAME" "$INFO_PLIST"
-    /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $APP_NAME" "$INFO_PLIST" 2>/dev/null \
-      || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $APP_NAME" "$INFO_PLIST"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleName $DISPLAY_APP_NAME" "$INFO_PLIST" 2>/dev/null \
+      || /usr/libexec/PlistBuddy -c "Add :CFBundleName string $DISPLAY_APP_NAME" "$INFO_PLIST"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $DISPLAY_APP_NAME" "$INFO_PLIST" 2>/dev/null \
+      || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $DISPLAY_APP_NAME" "$INFO_PLIST"
     /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$INFO_PLIST" 2>/dev/null \
       || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_ID" "$INFO_PLIST"
     if [[ -n "${TAG_SLUG:-}" ]]; then

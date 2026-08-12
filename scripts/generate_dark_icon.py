@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Generate dark mode app icon variants.
 
-Composites the Figma chevron layer (on transparent background) over a dark
+Composites the glyph layer (on transparent background) over a dark
 squircle background derived from the light icon's alpha channel. This
 preserves the exact chevron colors and glow without any halo artifacts.
 
-Requires the Figma export at: design/cmux-icon-chevron.png
+Requires the glyph layer at: design/vmux-icon-v.png
 Falls back to mathematical recomposition if the Figma layer is missing.
 """
 import json
@@ -20,13 +20,12 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DARK_BG = (28, 28, 30)
 
 # Figma chevron layer (exported from Figma at native resolution)
-FIGMA_CHEVRON = os.path.join(REPO, "design", "cmux-icon-chevron.png")
+FIGMA_CHEVRON = os.path.join(REPO, "design", "vmux-icon-v.png")
 
-# The Figma export is ~25% larger than the repo icon. Scale and offset
-# computed by matching the solid chevron (sat>0.5) bounding box center
-# between the repo light icon and the scaled Figma chevron layer.
-FIGMA_SCALE = 0.7996
-FIGMA_OFFSET = (290, 187)
+# The V layer is authored on the icon's own 1024pt canvas, so it needs no
+# rescale or offset the way the Figma chevron export did.
+FIGMA_SCALE = 1.0
+FIGMA_OFFSET = (0, 0)
 
 SIZES = [
     ("16.png", 16),
