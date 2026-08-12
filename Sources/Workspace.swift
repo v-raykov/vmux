@@ -2551,6 +2551,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private(set) var remoteDirectoryReportPanelIds: Set<UUID> = []
     var endedPersistentRemotePTYAttachSurfaceIds: Set<UUID> = []
     var remotePTYSessionIDsByPanelId: [UUID: String] = [:]
+    /// Terminal-editor surface -> the file surface it was opened from, so
+    /// quitting the editor returns there instead of whichever tab happens to
+    /// neighbor it.
+    var terminalEditorSourcePanelIds: [UUID: UUID] = [:]
     private var remoteRelayWorkspaceIDAliases: [UUID: UUID] = [:]
     private var remoteRelaySurfaceIDAliases: [UUID: UUID] = [:]
     private var suppressRemoteTerminalStartupForSessionRestoreScaffold = false
@@ -4265,6 +4269,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     private func installMarkdownPanelSubscription(_ markdownPanel: MarkdownPanel) {
+        markdownPanel.terminalEditorHost = self
         let subscription = Publishers.CombineLatest(
             markdownPanel.$displayTitle.removeDuplicates(),
             markdownPanel.$isDirty.removeDuplicates()
@@ -7863,6 +7868,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
         terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy = .inherit,
+        commandExitPolicy: TerminalSurfaceCommandExitPolicy = .waitAfterCommand,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
         allowTextBoxFocusDefault: Bool = true
@@ -7883,6 +7889,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
             terminalFontSizeCreationPolicy: terminalFontSizeCreationPolicy,
+            commandExitPolicy: commandExitPolicy,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault
@@ -7908,6 +7915,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
         terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy = .inherit,
+        commandExitPolicy: TerminalSurfaceCommandExitPolicy = .waitAfterCommand,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
         allowTextBoxFocusDefault: Bool = true
@@ -7958,6 +7966,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
             terminalFontSizeCreationPolicy: terminalFontSizeCreationPolicy,
+            commandExitPolicy: commandExitPolicy,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault
@@ -7981,6 +7990,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         suppressWorkspaceRemoteStartupCommand: Bool,
         restoredSurfaceId: UUID?,
         terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy,
+        commandExitPolicy: TerminalSurfaceCommandExitPolicy,
         inheritWorkingDirectoryFallback: Bool,
         workingDirectoryFallbackSourcePanelId: UUID?,
         allowTextBoxFocusDefault: Bool
@@ -8015,9 +8025,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // command exits so the user sees the error rather than a silently-respawned
         // local login shell.
         if startupCommand != nil {
-            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
-            inheritedConfig = template
+            inheritedConfig = commandExitPolicy.applying(to: inheritedConfig)
         }
         let fallbackSourcePanelId = workingDirectoryFallbackSourcePanelId
             ?? bonsplitController.selectedTab(inPane: paneId).map(\.id).flatMap(panelIdFromSurfaceId)

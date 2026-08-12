@@ -422,6 +422,25 @@ extension Workspace {
     /// Discard every Workspace-owned contribution for a surface whose tab,
     /// pane, or workspace has already been accepted for closure.
     @discardableResult
+    /// Returns focus to the file surface a terminal editor was opened from.
+    ///
+    /// Tab-close selection otherwise picks the closed tab's right-hand
+    /// neighbor, which is only the originating file surface when the editor
+    /// happens to be the last tab. The focus is applied after the close settles
+    /// so it is not overwritten by that selection.
+    private func restoreTerminalEditorSourceFocusIfNeeded(closedPanelId: UUID, origin: String) {
+        guard let sourcePanelId = terminalEditorSourcePanelIds.removeValue(forKey: closedPanelId),
+              origin != "workspace_teardown",
+              panels[sourcePanelId] != nil else {
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self, self.panels[sourcePanelId] != nil else { return }
+            self.focusPanel(sourcePanelId)
+        }
+    }
+
     func discardClosedPanelLifecycleState(
         panelId: UUID,
         tabId: TabID? = nil,
@@ -437,6 +456,7 @@ extension Workspace {
         preservesTerminalForTransfer: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
+        restoreTerminalEditorSourceFocusIfNeeded(closedPanelId: panelId, origin: origin)
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
         }
