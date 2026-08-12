@@ -18,8 +18,8 @@ func rgb(_ hex: UInt32, alpha: CGFloat = 1) -> CGColor {
 }
 
 let glyphTop = rgb(0xFF2D05)
-let glyphBottom = rgb(0xF3184A)
-let glyphGlow = rgb(0xFF2A20, alpha: 0.55)
+let glyphBottom = rgb(0xFF2E63)
+let glyphGlow = rgb(0xFF3A22, alpha: 0.7)
 
 enum Backdrop {
     case platedLight
@@ -73,11 +73,13 @@ func platePath() -> CGPath {
 /// The V, as a closed outline: flat arm tops, a solid wedge at the point, and
 /// inner edges parallel to the outer ones.
 func glyphPath() -> CGPath {
+    // Sized against the original chevron's footprint (36% wide, 51% tall) so the
+    // V carries the same weight in the dock rather than reading squat.
     let centerX = canvas / 2
-    let halfSpan: CGFloat = 215
-    let topY: CGFloat = 300
-    let tipY: CGFloat = 740
-    let armWidth: CGFloat = 132
+    let halfSpan: CGFloat = 258
+    let topY: CGFloat = 265
+    let tipY: CGFloat = 775
+    let armWidth: CGFloat = 146
 
     let outerLeft = centerX - halfSpan
     let outerRight = centerX + halfSpan
@@ -159,7 +161,7 @@ func makeIcon(backdrop: Backdrop, band: Band?) -> CGImage {
     // Glyph: glow first, then the gradient fill inside the same outline.
     let glyph = glyphPath()
     ctx.saveGState()
-    ctx.setShadow(offset: .zero, blur: 30, color: glyphGlow)
+    ctx.setShadow(offset: .zero, blur: 36, color: glyphGlow)
     ctx.addPath(glyph)
     ctx.setFillColor(glyphTop)
     ctx.fillPath()
@@ -203,7 +205,7 @@ func makeGlyphOnly() -> CGImage {
     let ctx = context()
     let glyph = glyphPath()
     ctx.saveGState()
-    ctx.setShadow(offset: .zero, blur: 30, color: glyphGlow)
+    ctx.setShadow(offset: .zero, blur: 36, color: glyphGlow)
     ctx.addPath(glyph)
     ctx.setFillColor(glyphTop)
     ctx.fillPath()

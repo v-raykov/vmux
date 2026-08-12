@@ -39,11 +39,18 @@ def recolor_banner(img: Image.Image) -> Image.Image:
     w, h = img.size
     pixels = img.load()
 
+    # The banner occupies roughly the bottom 18% of the icon.
+    banner_y = int(h * 0.82)
+    banner_h = h - banner_y
+
     # Pass 1: Recolor orange pixels to purple.
     # The debug icon's banner is (255, 107, 0) with anti-aliased edges.
     # We detect "orange-ish" pixels and remap them to purple, preserving
     # the relative luminance and alpha for smooth edges.
-    for y in range(h):
+    #
+    # Scoped to the banner rows: the glyph itself can carry warm colors that
+    # match this signature, and a red glyph would otherwise be recolored too.
+    for y in range(banner_y, h):
         for x in range(w):
             r, g, b, a = pixels[x, y]
             if a == 0:
@@ -62,11 +69,6 @@ def recolor_banner(img: Image.Image) -> Image.Image:
     # Pass 2: Replace the "DEV" text with "NIGHTLY".
     # First, blank out the existing text by filling the text region with
     # the banner color, then draw "NIGHTLY" centered.
-    #
-    # The banner occupies roughly the bottom 18% of the icon.
-    banner_y = int(h * 0.82)
-    banner_h = h - banner_y
-
     # Find the text bounding box by looking for white/light pixels in the banner
     # (the DEV text is white on orange, now white on purple)
     text_pixels = []
