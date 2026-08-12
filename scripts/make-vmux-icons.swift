@@ -1,219 +1,201 @@
 import AppKit
 import CoreGraphics
 
-// Builds the vmux icons from the original artwork rather than redrawing the
-// plate: each fully opaque row is flooded with its own colour sampled left of
-// the old chevron, which erases the glyph while leaving the plate's shading,
-// rim, shadow and squircle alpha exactly as shipped. The V is then drawn on top.
+// Derives the vmux icons from the shipped cmux artwork, so the plate is the
+// original's pixels and the glyph is the original chevron itself: hue-mapped
+// from blue to red and rotated a quarter turn so it points down.
 let canvas = 1024
-
-// sRGB throughout: CGColor(red:green:blue:) builds a generic-RGB colour, which
-// the compositor brightens on its way into the bitmap.
 let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
 
-func rgb(_ hex: UInt32, alpha: CGFloat = 1) -> CGColor {
-    CGColor(
-        colorSpace: colorSpace,
-        components: [
-            CGFloat((hex >> 16) & 0xFF) / 255,
-            CGFloat((hex >> 8) & 0xFF) / 255,
-            CGFloat(hex & 0xFF) / 255,
-            alpha,
-        ]
-    )!
-}
+// Where the chevron sat in the icon, with a margin for its glow. Only this
+// window is repainted, so the plate's rim and falloff stay untouched.
+let patchRect = (minX: 300, maxX: 780, minY: 210, maxY: 830)
 
-// Mirrors the chevron's own gradient: bright at the top, deeper at the point.
-let glyphTop = rgb(0xFF5714)
-let glyphBottom = rgb(0xF0136A)
-let glyphGlow = rgb(0xFF4A20, alpha: 0.85)
+// The Figma layer is authored larger than the icon; this is the scale the
+// repo's dark-icon generator already used to land it on the 1024pt canvas.
+let layerScale: CGFloat = 0.7996
 
-/// Rows below this keep their original pixels, so a variant banner and its
-/// text survive untouched.
-let bannerGuardY = 860
-
-func loadRGBA(_ path: String) -> (pixels: [UInt8], bytesPerRow: Int) {
+func loadRGBA(_ path: String, width: Int, height: Int) -> [UInt8] {
     guard let image = NSImage(contentsOfFile: path),
           let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
           let ctx = CGContext(
             data: nil,
-            width: canvas,
-            height: canvas,
+            width: width,
+            height: height,
             bitsPerComponent: 8,
-            bytesPerRow: canvas * 4,
+            bytesPerRow: width * 4,
             space: colorSpace,
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
           ) else { fatalError("load \(path)") }
-    ctx.draw(cg, in: CGRect(x: 0, y: 0, width: CGFloat(canvas), height: CGFloat(canvas)))
+    ctx.draw(cg, in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
     guard let data = ctx.data else { fatalError("pixels") }
-    let buffer = UnsafeBufferPointer(
+    return Array(UnsafeBufferPointer(
         start: data.assumingMemoryBound(to: UInt8.self),
-        count: canvas * 4 * canvas
-    )
-    return (Array(buffer), canvas * 4)
+        count: width * 4 * height
+    ))
 }
 
-/// Erases the glyph by flooding each opaque row with the plate colour taken
-/// just inside its left edge, well clear of where the chevron sat.
-func plateOnly(from path: String) -> CGImage {
-    var (pixels, bpr) = loadRGBA(path)
-
-    for y in 0..<canvas {
-        guard y < bannerGuardY else { continue }
-        var firstOpaqueX: Int?
-        for x in 0..<canvas where pixels[y * bpr + x * 4 + 3] == 255 {
-            firstOpaqueX = x
-            break
-        }
-        guard let firstOpaqueX else { continue }
-        let sampleX = min(firstOpaqueX + 20, canvas - 1)
-        let s = y * bpr + sampleX * 4
-        let (r, g, b) = (pixels[s], pixels[s + 1], pixels[s + 2])
-
-        for x in 0..<canvas {
-            let o = y * bpr + x * 4
-            guard pixels[o + 3] == 255 else { continue }
-            pixels[o] = r
-            pixels[o + 1] = g
-            pixels[o + 2] = b
-        }
-    }
-
+func makeImage(_ pixels: [UInt8], width: Int, height: Int) -> CGImage {
     guard let provider = CGDataProvider(data: Data(pixels) as CFData),
           let image = CGImage(
-            width: canvas,
-            height: canvas,
+            width: width,
+            height: height,
             bitsPerComponent: 8,
             bitsPerPixel: 32,
-            bytesPerRow: bpr,
+            bytesPerRow: width * 4,
             space: colorSpace,
             bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
             provider: provider,
             decode: nil,
-            shouldInterpolate: false,
+            shouldInterpolate: true,
             intent: .defaultIntent
-          ) else { fatalError("plate image") }
+          ) else { fatalError("image") }
     return image
 }
 
-/// The V: flat arm tops, a solid wedge at the point, inner edges parallel to
-/// the outer ones.
-func glyphPath() -> CGPath {
-    let centerX = CGFloat(canvas) / 2
-    let halfSpan: CGFloat = 250
-    let topY: CGFloat = 268
-    let tipY: CGFloat = 772
-    let armWidth: CGFloat = 104
+func writePNG(_ image: CGImage, to path: String) {
+    guard let data = NSBitmapImageRep(cgImage: image)
+        .representation(using: .png, properties: [:]) else { fatalError("encode") }
+    try! data.write(to: URL(fileURLWithPath: path))
+    print("wrote \(path)")
+}
 
-    let outerLeft = centerX - halfSpan
-    let outerRight = centerX + halfSpan
-    let innerLeft = outerLeft + armWidth
-    let slope = (tipY - topY) / halfSpan
-    let innerTipY = topY + (centerX - innerLeft) * slope
+// MARK: - Colour
 
-    func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x, y: CGFloat(canvas) - y) }
-    let path = CGMutablePath()
-    path.move(to: p(outerLeft, topY))
-    path.addLine(to: p(centerX, tipY))
-    path.addLine(to: p(outerRight, topY))
-    path.addLine(to: p(outerRight - armWidth, topY))
-    path.addLine(to: p(centerX, innerTipY))
-    path.addLine(to: p(innerLeft, topY))
-    path.closeSubpath()
-    return path
+func rgbToHSV(_ r: Double, _ g: Double, _ b: Double) -> (h: Double, s: Double, v: Double) {
+    let maxV = max(r, g, b), minV = min(r, g, b)
+    let delta = maxV - minV
+    var h = 0.0
+    if delta > 0 {
+        if maxV == r { h = ((g - b) / delta).truncatingRemainder(dividingBy: 6) }
+        else if maxV == g { h = (b - r) / delta + 2 }
+        else { h = (r - g) / delta + 4 }
+        h /= 6
+        if h < 0 { h += 1 }
+    }
+    return (h, maxV == 0 ? 0 : delta / maxV, maxV)
+}
+
+func hsvToRGB(_ h: Double, _ s: Double, _ v: Double) -> (Double, Double, Double) {
+    if s == 0 { return (v, v, v) }
+    let sector = (h - floor(h)) * 6
+    let i = floor(sector)
+    let f = sector - i
+    let p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f))
+    switch Int(i) % 6 {
+    case 0: return (v, t, p)
+    case 1: return (q, v, p)
+    case 2: return (p, v, t)
+    case 3: return (p, q, v)
+    case 4: return (t, p, v)
+    default: return (v, p, q)
+    }
+}
+
+/// Maps the chevron's cyan-to-indigo ramp onto red-to-pink, keeping every
+/// pixel's saturation and brightness so the gradient and glow survive intact.
+func recolored(_ pixels: [UInt8], width: Int, height: Int) -> [UInt8] {
+    let cyanHue = 0.53, indigoHue = 0.64
+    let redHue = 0.035, pinkHue = 0.95 - 1.0  // wrap below zero, unwrapped later
+    var out = pixels
+    for i in stride(from: 0, to: pixels.count, by: 4) {
+        let a = Double(pixels[i + 3]) / 255
+        guard a > 0 else { continue }
+        // Premultiplied: recover straight colour before converting.
+        let r = Double(pixels[i]) / 255 / a
+        let g = Double(pixels[i + 1]) / 255 / a
+        let b = Double(pixels[i + 2]) / 255 / a
+        let (h, s, v) = rgbToHSV(min(r, 1), min(g, 1), min(b, 1))
+        let t = (h - cyanHue) / (indigoHue - cyanHue)
+        let mapped = redHue + t * (pinkHue - redHue)
+        let (nr, ng, nb) = hsvToRGB(mapped, s, v)
+        out[i] = UInt8(max(0, min(255, nr * a * 255)))
+        out[i + 1] = UInt8(max(0, min(255, ng * a * 255)))
+        out[i + 2] = UInt8(max(0, min(255, nb * a * 255)))
+    }
+    return out
+}
+
+// MARK: - Plate
+
+/// Erases the chevron by repainting only its window, interpolating each row
+/// between plate colours sampled just outside the glyph on either side.
+func plateOnly(from path: String) -> CGImage {
+    var pixels = loadRGBA(path, width: canvas, height: canvas)
+    let bpr = canvas * 4
+    let leftX = patchRect.minX - 20
+    let rightX = patchRect.maxX + 20
+
+    for y in patchRect.minY...patchRect.maxY {
+        let l = y * bpr + leftX * 4
+        let r = y * bpr + rightX * 4
+        guard pixels[l + 3] == 255, pixels[r + 3] == 255 else { continue }
+        let left = (Double(pixels[l]), Double(pixels[l + 1]), Double(pixels[l + 2]))
+        let right = (Double(pixels[r]), Double(pixels[r + 1]), Double(pixels[r + 2]))
+
+        for x in patchRect.minX...patchRect.maxX {
+            let o = y * bpr + x * 4
+            guard pixels[o + 3] == 255 else { continue }
+            let t = Double(x - leftX) / Double(rightX - leftX)
+            pixels[o] = UInt8(left.0 + (right.0 - left.0) * t)
+            pixels[o + 1] = UInt8(left.1 + (right.1 - left.1) * t)
+            pixels[o + 2] = UInt8(left.2 + (right.2 - left.2) * t)
+        }
+    }
+    return makeImage(pixels, width: canvas, height: canvas)
+}
+
+// MARK: - Glyph
+
+let layerWidth = 639, layerHeight = 818
+let redLayer = makeImage(
+    recolored(
+        loadRGBA("/tmp/orig-chevron-layer.png", width: layerWidth, height: layerHeight),
+        width: layerWidth,
+        height: layerHeight
+    ),
+    width: layerWidth,
+    height: layerHeight
+)
+
+/// Draws the recoloured chevron rotated a quarter turn clockwise, so it points
+/// down, centred on the icon canvas.
+func drawGlyph(in ctx: CGContext) {
+    let w = CGFloat(layerWidth) * layerScale
+    let h = CGFloat(layerHeight) * layerScale
+    ctx.saveGState()
+    ctx.translateBy(x: CGFloat(canvas) / 2, y: CGFloat(canvas) / 2)
+    ctx.rotate(by: -.pi / 2)
+    ctx.draw(redLayer, in: CGRect(x: -w / 2, y: -h / 2, width: w, height: h))
+    ctx.restoreGState()
+}
+
+func context() -> CGContext {
+    guard let ctx = CGContext(
+        data: nil,
+        width: canvas,
+        height: canvas,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: colorSpace,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else { fatalError("context") }
+    return ctx
 }
 
 func compose(plate: CGImage, to path: String) {
-    guard let ctx = CGContext(
-        data: nil,
-        width: canvas,
-        height: canvas,
-        bitsPerComponent: 8,
-        bytesPerRow: 0,
-        space: colorSpace,
-        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-    ) else { fatalError("context") }
-
-    let full = CGRect(x: 0, y: 0, width: CGFloat(canvas), height: CGFloat(canvas))
-    ctx.draw(plate, in: full)
-
-    let glyph = glyphPath()
-    ctx.saveGState()
-    ctx.setShadow(offset: .zero, blur: 40, color: glyphGlow)
-    ctx.addPath(glyph)
-    ctx.setFillColor(glyphTop)
-    ctx.fillPath()
-    ctx.restoreGState()
-
-    guard let gradient = CGGradient(
-        colorsSpace: colorSpace,
-        colors: [glyphTop, glyphBottom] as CFArray,
-        locations: [0, 1]
-    ) else { fatalError("gradient") }
-    let box = glyph.boundingBox
-    ctx.saveGState()
-    ctx.addPath(glyph)
-    ctx.clip()
-    ctx.drawLinearGradient(
-        gradient,
-        start: CGPoint(x: box.midX, y: box.maxY),
-        end: CGPoint(x: box.midX, y: box.minY),
-        options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
-    )
-    ctx.restoreGState()
-
-    guard let image = ctx.makeImage(),
-          let data = NSBitmapImageRep(cgImage: image)
-        .representation(using: .png, properties: [:]) else { fatalError("encode") }
-    try! data.write(to: URL(fileURLWithPath: path))
-    print("wrote \(path)")
-}
-
-/// Transparent glyph for the Icon Composer layer and design/ source.
-func writeGlyphLayer(to path: String) {
-    guard let ctx = CGContext(
-        data: nil,
-        width: canvas,
-        height: canvas,
-        bitsPerComponent: 8,
-        bytesPerRow: 0,
-        space: colorSpace,
-        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-    ) else { fatalError("context") }
-
-    let glyph = glyphPath()
-    ctx.saveGState()
-    ctx.setShadow(offset: .zero, blur: 40, color: glyphGlow)
-    ctx.addPath(glyph)
-    ctx.setFillColor(glyphTop)
-    ctx.fillPath()
-    ctx.restoreGState()
-
-    guard let gradient = CGGradient(
-        colorsSpace: colorSpace,
-        colors: [glyphTop, glyphBottom] as CFArray,
-        locations: [0, 1]
-    ) else { fatalError("gradient") }
-    let box = glyph.boundingBox
-    ctx.saveGState()
-    ctx.addPath(glyph)
-    ctx.clip()
-    ctx.drawLinearGradient(
-        gradient,
-        start: CGPoint(x: box.midX, y: box.maxY),
-        end: CGPoint(x: box.midX, y: box.minY),
-        options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
-    )
-    ctx.restoreGState()
-
-    guard let image = ctx.makeImage(),
-          let data = NSBitmapImageRep(cgImage: image)
-        .representation(using: .png, properties: [:]) else { fatalError("encode") }
-    try! data.write(to: URL(fileURLWithPath: path))
-    print("wrote \(path)")
+    let ctx = context()
+    ctx.draw(plate, in: CGRect(x: 0, y: 0, width: CGFloat(canvas), height: CGFloat(canvas)))
+    drawGlyph(in: ctx)
+    guard let image = ctx.makeImage() else { fatalError("compose") }
+    writePNG(image, to: path)
 }
 
 compose(plate: plateOnly(from: "/tmp/orig-icon-1024.png"), to: "/tmp/vmux-light.png")
 compose(plate: plateOnly(from: "/tmp/orig-dark-1024.png"), to: "/tmp/vmux-dark.png")
 compose(plate: plateOnly(from: "/tmp/orig-debug-1024.png"), to: "/tmp/vmux-debug.png")
-writeGlyphLayer(to: "/tmp/vmux-glyph.png")
+
+let glyphCtx = context()
+drawGlyph(in: glyphCtx)
+guard let glyphImage = glyphCtx.makeImage() else { fatalError("glyph") }
+writePNG(glyphImage, to: "/tmp/vmux-glyph.png")
