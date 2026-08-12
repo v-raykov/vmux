@@ -1,16 +1,14 @@
 import AppKit
 import CoreGraphics
 
-// Reproduces the original cmux icon treatment with a red V: same plate
-// geometry, same gradient plate, same soft same-hue glyph glow, same variant
-// bands. Colors were sampled from the original artwork.
-let canvas: CGFloat = 1024
-let plateInset: CGFloat = 96
-let plateCornerRadius: CGFloat = 185
+// Builds the vmux icons from the original artwork rather than redrawing the
+// plate: each fully opaque row is flooded with its own colour sampled left of
+// the old chevron, which erases the glyph while leaving the plate's shading,
+// rim, shadow and squircle alpha exactly as shipped. The V is then drawn on top.
+let canvas = 1024
 
-// sRGB throughout: CGColor(red:green:blue:) builds a generic-RGB color, which
-// the compositor lightens on its way into the bitmap, so sampled output no
-// longer matches the artwork these values were taken from.
+// sRGB throughout: CGColor(red:green:blue:) builds a generic-RGB colour, which
+// the compositor brightens on its way into the bitmap.
 let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
 
 func rgb(_ hex: UInt32, alpha: CGFloat = 1) -> CGColor {
@@ -25,78 +23,96 @@ func rgb(_ hex: UInt32, alpha: CGFloat = 1) -> CGColor {
     )!
 }
 
-let glyphTop = rgb(0xFF2D05)
-let glyphBottom = rgb(0xFF2E63)
-let glyphGlow = rgb(0xFF4526, alpha: 0.85)
+// Mirrors the chevron's own gradient: bright at the top, deeper at the point.
+let glyphTop = rgb(0xFF5714)
+let glyphBottom = rgb(0xF0136A)
+let glyphGlow = rgb(0xFF4A20, alpha: 0.85)
 
-enum Backdrop {
-    case platedLight
-    case platedDark
-    case fullBleedWhite
-}
+/// Rows below this keep their original pixels, so a variant banner and its
+/// text survive untouched.
+let bannerGuardY = 860
 
-struct Band {
-    let fill: CGColor
-    let topY: CGFloat
-    let text: String
-    let fontSize: CGFloat
-}
-
-func context() -> CGContext {
-    guard let context = CGContext(
-        data: nil,
-        width: Int(canvas),
-        height: Int(canvas),
-        bitsPerComponent: 8,
-        bytesPerRow: 0,
-        space: colorSpace,
-        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-    ) else { fatalError("context") }
-    return context
-}
-
-func write(_ image: CGImage, to path: String) {
-    guard let data = NSBitmapImageRep(cgImage: image)
-        .representation(using: .png, properties: [:]) else { fatalError("encode") }
-    try! data.write(to: URL(fileURLWithPath: path))
-    print("wrote \(path)")
-}
-
-func platePath() -> CGPath {
-    CGPath(
-        roundedRect: CGRect(
-            x: plateInset,
-            y: plateInset,
-            width: canvas - plateInset * 2,
-            height: canvas - plateInset * 2
-        ),
-        cornerWidth: plateCornerRadius,
-        cornerHeight: plateCornerRadius,
-        transform: nil
+func loadRGBA(_ path: String) -> (pixels: [UInt8], bytesPerRow: Int) {
+    guard let image = NSImage(contentsOfFile: path),
+          let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+          let ctx = CGContext(
+            data: nil,
+            width: canvas,
+            height: canvas,
+            bitsPerComponent: 8,
+            bytesPerRow: canvas * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+          ) else { fatalError("load \(path)") }
+    ctx.draw(cg, in: CGRect(x: 0, y: 0, width: CGFloat(canvas), height: CGFloat(canvas)))
+    guard let data = ctx.data else { fatalError("pixels") }
+    let buffer = UnsafeBufferPointer(
+        start: data.assumingMemoryBound(to: UInt8.self),
+        count: canvas * 4 * canvas
     )
+    return (Array(buffer), canvas * 4)
 }
 
-/// The V, as a closed outline: flat arm tops, a solid wedge at the point, and
-/// inner edges parallel to the outer ones.
+/// Erases the glyph by flooding each opaque row with the plate colour taken
+/// just inside its left edge, well clear of where the chevron sat.
+func plateOnly(from path: String) -> CGImage {
+    var (pixels, bpr) = loadRGBA(path)
+
+    for y in 0..<canvas {
+        guard y < bannerGuardY else { continue }
+        var firstOpaqueX: Int?
+        for x in 0..<canvas where pixels[y * bpr + x * 4 + 3] == 255 {
+            firstOpaqueX = x
+            break
+        }
+        guard let firstOpaqueX else { continue }
+        let sampleX = min(firstOpaqueX + 20, canvas - 1)
+        let s = y * bpr + sampleX * 4
+        let (r, g, b) = (pixels[s], pixels[s + 1], pixels[s + 2])
+
+        for x in 0..<canvas {
+            let o = y * bpr + x * 4
+            guard pixels[o + 3] == 255 else { continue }
+            pixels[o] = r
+            pixels[o + 1] = g
+            pixels[o + 2] = b
+        }
+    }
+
+    guard let provider = CGDataProvider(data: Data(pixels) as CFData),
+          let image = CGImage(
+            width: canvas,
+            height: canvas,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: bpr,
+            space: colorSpace,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+          ) else { fatalError("plate image") }
+    return image
+}
+
+/// The V: flat arm tops, a solid wedge at the point, inner edges parallel to
+/// the outer ones.
 func glyphPath() -> CGPath {
-    // Sized against the original chevron's footprint (36% wide, 51% tall) so the
-    // V carries the same weight in the dock rather than reading squat.
-    let centerX = canvas / 2
-    let halfSpan: CGFloat = 258
-    let topY: CGFloat = 265
-    let tipY: CGFloat = 775
-    let armWidth: CGFloat = 146
+    let centerX = CGFloat(canvas) / 2
+    let halfSpan: CGFloat = 250
+    let topY: CGFloat = 268
+    let tipY: CGFloat = 772
+    let armWidth: CGFloat = 104
 
     let outerLeft = centerX - halfSpan
     let outerRight = centerX + halfSpan
     let innerLeft = outerLeft + armWidth
-    // Inner edges share the outer slope, so the inner vertex sits higher.
     let slope = (tipY - topY) / halfSpan
     let innerTipY = topY + (centerX - innerLeft) * slope
 
+    func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x, y: CGFloat(canvas) - y) }
     let path = CGMutablePath()
-    // Flipped vertically: CoreGraphics origin is bottom-left.
-    func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x, y: canvas - y) }
     path.move(to: p(outerLeft, topY))
     path.addLine(to: p(centerX, tipY))
     path.addLine(to: p(outerRight, topY))
@@ -107,153 +123,97 @@ func glyphPath() -> CGPath {
     return path
 }
 
-func drawVerticalGradient(
-    in ctx: CGContext,
-    clipTo path: CGPath,
-    stops: [(CGFloat, CGColor)],
-    rect: CGRect
-) {
+func compose(plate: CGImage, to path: String) {
+    guard let ctx = CGContext(
+        data: nil,
+        width: canvas,
+        height: canvas,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: colorSpace,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else { fatalError("context") }
+
+    let full = CGRect(x: 0, y: 0, width: CGFloat(canvas), height: CGFloat(canvas))
+    ctx.draw(plate, in: full)
+
+    let glyph = glyphPath()
+    ctx.saveGState()
+    ctx.setShadow(offset: .zero, blur: 40, color: glyphGlow)
+    ctx.addPath(glyph)
+    ctx.setFillColor(glyphTop)
+    ctx.fillPath()
+    ctx.restoreGState()
+
     guard let gradient = CGGradient(
         colorsSpace: colorSpace,
-        colors: stops.map(\.1) as CFArray,
-        locations: stops.map(\.0)
-    ) else { return }
+        colors: [glyphTop, glyphBottom] as CFArray,
+        locations: [0, 1]
+    ) else { fatalError("gradient") }
+    let box = glyph.boundingBox
     ctx.saveGState()
-    ctx.addPath(path)
+    ctx.addPath(glyph)
     ctx.clip()
     ctx.drawLinearGradient(
         gradient,
-        start: CGPoint(x: rect.midX, y: rect.maxY),
-        end: CGPoint(x: rect.midX, y: rect.minY),
+        start: CGPoint(x: box.midX, y: box.maxY),
+        end: CGPoint(x: box.midX, y: box.minY),
         options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
     )
     ctx.restoreGState()
+
+    guard let image = ctx.makeImage(),
+          let data = NSBitmapImageRep(cgImage: image)
+        .representation(using: .png, properties: [:]) else { fatalError("encode") }
+    try! data.write(to: URL(fileURLWithPath: path))
+    print("wrote \(path)")
 }
 
-func makeIcon(backdrop: Backdrop, band: Band?) -> CGImage {
-    let ctx = context()
-    let full = CGRect(x: 0, y: 0, width: canvas, height: canvas)
+/// Transparent glyph for the Icon Composer layer and design/ source.
+func writeGlyphLayer(to path: String) {
+    guard let ctx = CGContext(
+        data: nil,
+        width: canvas,
+        height: canvas,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: colorSpace,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else { fatalError("context") }
 
-    switch backdrop {
-    case .fullBleedWhite:
-        ctx.setFillColor(rgb(0xFFFFFF))
-        ctx.fill(full)
-    case .platedLight, .platedDark:
-        let path = platePath()
-        ctx.saveGState()
-        ctx.setShadow(
-            offset: CGSize(width: 0, height: -8),
-            blur: 24,
-            color: rgb(0x000000, alpha: 0.35)
-        )
-        ctx.addPath(path)
-        ctx.setFillColor(rgb(0x000000))
-        ctx.fillPath()
-        ctx.restoreGState()
-
-        // Sampled down the original plate. The bright rim collapses within the
-        // first ~13% of the height; a plain two-stop gradient smears that
-        // highlight over the whole plate and reads washed out.
-        let darkStops: [(CGFloat, CGColor)] = [
-            (0.00, rgb(0x656466)),
-            (0.05, rgb(0x5F6161)),
-            (0.13, rgb(0x303031)),
-            (0.29, rgb(0x2B292B)),
-            (0.50, rgb(0x242323)),
-            (0.73, rgb(0x1B1B1A)),
-            (0.88, rgb(0x151614)),
-            (1.00, rgb(0x141313)),
-        ]
-        let lightStops: [(CGFloat, CGColor)] = [
-            (0.00, rgb(0xFFFFFF)),
-            (0.13, rgb(0xFFFFFF)),
-            (0.50, rgb(0xF6F6F5)),
-            (0.88, rgb(0xEDEDEC)),
-            (1.00, rgb(0xECECEC)),
-        ]
-        drawVerticalGradient(
-            in: ctx,
-            clipTo: path,
-            stops: backdrop == .platedLight ? lightStops : darkStops,
-            rect: path.boundingBox
-        )
-    }
-
-    // Glyph: glow first, then the gradient fill inside the same outline.
     let glyph = glyphPath()
     ctx.saveGState()
-    ctx.setShadow(offset: .zero, blur: 42, color: glyphGlow)
+    ctx.setShadow(offset: .zero, blur: 40, color: glyphGlow)
     ctx.addPath(glyph)
     ctx.setFillColor(glyphTop)
     ctx.fillPath()
     ctx.restoreGState()
 
-    drawVerticalGradient(
-        in: ctx,
-        clipTo: glyph,
-        stops: [(0, glyphTop), (1, glyphBottom)],
-        rect: glyph.boundingBox
-    )
-
-    if let band {
-        let bandRect = CGRect(x: 0, y: 0, width: canvas, height: canvas - band.topY)
-        ctx.setFillColor(band.fill)
-        ctx.fill(bandRect)
-
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: band.fontSize, weight: .bold),
-            .foregroundColor: NSColor.white,
-        ]
-        let line = NSAttributedString(string: band.text, attributes: attributes)
-        let size = line.size()
-        let nsContext = NSGraphicsContext(cgContext: ctx, flipped: false)
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = nsContext
-        line.draw(at: CGPoint(
-            x: (canvas - size.width) / 2,
-            y: bandRect.midY - size.height / 2
-        ))
-        NSGraphicsContext.restoreGraphicsState()
-    }
-
-    guard let image = ctx.makeImage() else { fatalError("image") }
-    return image
-}
-
-/// Transparent glyph for the Icon Composer layer, which supplies its own plate.
-func makeGlyphOnly() -> CGImage {
-    let ctx = context()
-    let glyph = glyphPath()
+    guard let gradient = CGGradient(
+        colorsSpace: colorSpace,
+        colors: [glyphTop, glyphBottom] as CFArray,
+        locations: [0, 1]
+    ) else { fatalError("gradient") }
+    let box = glyph.boundingBox
     ctx.saveGState()
-    ctx.setShadow(offset: .zero, blur: 42, color: glyphGlow)
     ctx.addPath(glyph)
-    ctx.setFillColor(glyphTop)
-    ctx.fillPath()
-    ctx.restoreGState()
-    drawVerticalGradient(
-        in: ctx,
-        clipTo: glyph,
-        stops: [(0, glyphTop), (1, glyphBottom)],
-        rect: glyph.boundingBox
+    ctx.clip()
+    ctx.drawLinearGradient(
+        gradient,
+        start: CGPoint(x: box.midX, y: box.maxY),
+        end: CGPoint(x: box.midX, y: box.minY),
+        options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
     )
-    guard let image = ctx.makeImage() else { fatalError("glyph") }
-    return image
+    ctx.restoreGState()
+
+    guard let image = ctx.makeImage(),
+          let data = NSBitmapImageRep(cgImage: image)
+        .representation(using: .png, properties: [:]) else { fatalError("encode") }
+    try! data.write(to: URL(fileURLWithPath: path))
+    print("wrote \(path)")
 }
 
-write(makeIcon(backdrop: .platedLight, band: nil), to: "/tmp/vmux-light.png")
-write(makeIcon(backdrop: .platedDark, band: nil), to: "/tmp/vmux-dark.png")
-write(
-    makeIcon(
-        backdrop: .platedLight,
-        band: Band(fill: rgb(0xFF6B00), topY: 880, text: "DEV", fontSize: 104)
-    ),
-    to: "/tmp/vmux-debug.png"
-)
-write(
-    makeIcon(
-        backdrop: .fullBleedWhite,
-        band: Band(fill: rgb(0x8C3CDC), topY: 839, text: "NIGHTLY", fontSize: 104)
-    ),
-    to: "/tmp/vmux-nightly.png"
-)
-write(makeGlyphOnly(), to: "/tmp/vmux-glyph.png")
+compose(plate: plateOnly(from: "/tmp/orig-icon-1024.png"), to: "/tmp/vmux-light.png")
+compose(plate: plateOnly(from: "/tmp/orig-dark-1024.png"), to: "/tmp/vmux-dark.png")
+compose(plate: plateOnly(from: "/tmp/orig-debug-1024.png"), to: "/tmp/vmux-debug.png")
+writeGlyphLayer(to: "/tmp/vmux-glyph.png")
