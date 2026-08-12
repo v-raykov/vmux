@@ -11,9 +11,16 @@ let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
 // window is repainted, so the plate's rim and falloff stay untouched.
 let patchRect = (minX: 300, maxX: 780, minY: 210, maxY: 830)
 
-// The Figma layer is authored larger than the icon; this is the scale the
-// repo's dark-icon generator already used to land it on the 1024pt canvas.
-let layerScale: CGFloat = 0.7996
+// The Figma layer is authored larger than the icon. 0.7996 is the scale the
+// repo's dark-icon generator used; the correction lands the glyph's box on the
+// original's 525x377 footprint exactly.
+let layerScale: CGFloat = 0.7996 * 1.033
+
+// Where the chevron's box lands when the original placement is rotated a
+// quarter turn clockwise about the canvas centre: the original sat right of
+// centre, so its rotation sits below centre. Centring on the canvas instead
+// leaves the glyph visibly high, with dead space beneath it.
+let glyphCenter = CGPoint(x: 503, y: 542)
 
 func loadRGBA(_ path: String, width: Int, height: Int) -> [UInt8] {
     guard let image = NSImage(contentsOfFile: path),
@@ -164,7 +171,7 @@ func drawGlyph(in ctx: CGContext) {
     let w = CGFloat(layerWidth) * layerScale
     let h = CGFloat(layerHeight) * layerScale
     ctx.saveGState()
-    ctx.translateBy(x: CGFloat(canvas) / 2, y: CGFloat(canvas) / 2)
+    ctx.translateBy(x: glyphCenter.x, y: CGFloat(canvas) - glyphCenter.y)
     ctx.rotate(by: -.pi / 2)
     ctx.draw(redLayer, in: CGRect(x: -w / 2, y: -h / 2, width: w, height: h))
     ctx.restoreGState()
