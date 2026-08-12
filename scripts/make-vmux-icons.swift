@@ -8,18 +8,26 @@ let canvas: CGFloat = 1024
 let plateInset: CGFloat = 96
 let plateCornerRadius: CGFloat = 185
 
+// sRGB throughout: CGColor(red:green:blue:) builds a generic-RGB color, which
+// the compositor lightens on its way into the bitmap, so sampled output no
+// longer matches the artwork these values were taken from.
+let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+
 func rgb(_ hex: UInt32, alpha: CGFloat = 1) -> CGColor {
     CGColor(
-        red: CGFloat((hex >> 16) & 0xFF) / 255,
-        green: CGFloat((hex >> 8) & 0xFF) / 255,
-        blue: CGFloat(hex & 0xFF) / 255,
-        alpha: alpha
-    )
+        colorSpace: colorSpace,
+        components: [
+            CGFloat((hex >> 16) & 0xFF) / 255,
+            CGFloat((hex >> 8) & 0xFF) / 255,
+            CGFloat(hex & 0xFF) / 255,
+            alpha,
+        ]
+    )!
 }
 
 let glyphTop = rgb(0xFF2D05)
 let glyphBottom = rgb(0xFF2E63)
-let glyphGlow = rgb(0xFF3A22, alpha: 0.7)
+let glyphGlow = rgb(0xFF4526, alpha: 0.85)
 
 enum Backdrop {
     case platedLight
@@ -33,8 +41,6 @@ struct Band {
     let text: String
     let fontSize: CGFloat
 }
-
-let colorSpace = CGColorSpaceCreateDeviceRGB()
 
 func context() -> CGContext {
     guard let context = CGContext(
@@ -104,14 +110,13 @@ func glyphPath() -> CGPath {
 func drawVerticalGradient(
     in ctx: CGContext,
     clipTo path: CGPath,
-    from top: CGColor,
-    to bottom: CGColor,
+    stops: [(CGFloat, CGColor)],
     rect: CGRect
 ) {
     guard let gradient = CGGradient(
         colorsSpace: colorSpace,
-        colors: [top, bottom] as CFArray,
-        locations: [0, 1]
+        colors: stops.map(\.1) as CFArray,
+        locations: stops.map(\.0)
     ) else { return }
     ctx.saveGState()
     ctx.addPath(path)
@@ -139,21 +144,37 @@ func makeIcon(backdrop: Backdrop, band: Band?) -> CGImage {
         ctx.setShadow(
             offset: CGSize(width: 0, height: -8),
             blur: 24,
-            color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.35)
+            color: rgb(0x000000, alpha: 0.35)
         )
         ctx.addPath(path)
         ctx.setFillColor(rgb(0x000000))
         ctx.fillPath()
         ctx.restoreGState()
 
-        let (top, bottom) = backdrop == .platedLight
-            ? (rgb(0xFFFFFF), rgb(0xECECEC))
-            : (rgb(0x4F4E4D), rgb(0x141313))
+        // Sampled down the original plate. The bright rim collapses within the
+        // first ~13% of the height; a plain two-stop gradient smears that
+        // highlight over the whole plate and reads washed out.
+        let darkStops: [(CGFloat, CGColor)] = [
+            (0.00, rgb(0x656466)),
+            (0.05, rgb(0x5F6161)),
+            (0.13, rgb(0x303031)),
+            (0.29, rgb(0x2B292B)),
+            (0.50, rgb(0x242323)),
+            (0.73, rgb(0x1B1B1A)),
+            (0.88, rgb(0x151614)),
+            (1.00, rgb(0x141313)),
+        ]
+        let lightStops: [(CGFloat, CGColor)] = [
+            (0.00, rgb(0xFFFFFF)),
+            (0.13, rgb(0xFFFFFF)),
+            (0.50, rgb(0xF6F6F5)),
+            (0.88, rgb(0xEDEDEC)),
+            (1.00, rgb(0xECECEC)),
+        ]
         drawVerticalGradient(
             in: ctx,
             clipTo: path,
-            from: top,
-            to: bottom,
+            stops: backdrop == .platedLight ? lightStops : darkStops,
             rect: path.boundingBox
         )
     }
@@ -161,7 +182,7 @@ func makeIcon(backdrop: Backdrop, band: Band?) -> CGImage {
     // Glyph: glow first, then the gradient fill inside the same outline.
     let glyph = glyphPath()
     ctx.saveGState()
-    ctx.setShadow(offset: .zero, blur: 36, color: glyphGlow)
+    ctx.setShadow(offset: .zero, blur: 42, color: glyphGlow)
     ctx.addPath(glyph)
     ctx.setFillColor(glyphTop)
     ctx.fillPath()
@@ -170,8 +191,7 @@ func makeIcon(backdrop: Backdrop, band: Band?) -> CGImage {
     drawVerticalGradient(
         in: ctx,
         clipTo: glyph,
-        from: glyphTop,
-        to: glyphBottom,
+        stops: [(0, glyphTop), (1, glyphBottom)],
         rect: glyph.boundingBox
     )
 
@@ -205,7 +225,7 @@ func makeGlyphOnly() -> CGImage {
     let ctx = context()
     let glyph = glyphPath()
     ctx.saveGState()
-    ctx.setShadow(offset: .zero, blur: 36, color: glyphGlow)
+    ctx.setShadow(offset: .zero, blur: 42, color: glyphGlow)
     ctx.addPath(glyph)
     ctx.setFillColor(glyphTop)
     ctx.fillPath()
@@ -213,8 +233,7 @@ func makeGlyphOnly() -> CGImage {
     drawVerticalGradient(
         in: ctx,
         clipTo: glyph,
-        from: glyphTop,
-        to: glyphBottom,
+        stops: [(0, glyphTop), (1, glyphBottom)],
         rect: glyph.boundingBox
     )
     guard let image = ctx.makeImage() else { fatalError("glyph") }
