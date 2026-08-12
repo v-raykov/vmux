@@ -83,6 +83,8 @@ extension Workspace: TerminalEditorOpeningHost {
             return nil
         }
 
+        terminalEditorSourcePanelIds[terminalPanel.id] = panelId
+
         // The file surface deliberately stays open. It is what the user returns
         // to when the editor exits, and it keeps the editor from being the
         // workspace's last panel — a child exit there collapses the workspace.

@@ -486,6 +486,42 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         )
     }
 
+    func testQuittingTheEditorReturnsFocusToItsFileSurface() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let fileURL = try makeScratchFile()
+        let previewPanel = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: paneId,
+            filePath: fileURL.path
+        ))
+        let editorPanel = try XCTUnwrap(workspace.openTerminalEditorSurface(
+            forPanelId: previewPanel.id,
+            userShell: "/bin/zsh",
+            resolvedEditor: nil,
+            placement: .afterSource
+        ))
+        // A tab to the right of the editor is what plain close-selection would
+        // pick instead of the file surface.
+        _ = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false))
+
+        _ = workspace.closePanel(editorPanel.id, force: true)
+
+        let deadline = Date.now.addingTimeInterval(5.0)
+        while workspace.focusedPanelId != previewPanel.id, Date.now < deadline {
+            _ = RunLoop.current.run(
+                mode: .default,
+                before: min(Date.now.addingTimeInterval(0.01), deadline)
+            )
+        }
+
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            previewPanel.id,
+            "Quitting the editor must land on the file it was opened from, not the "
+                + "editor's right-hand neighbor"
+        )
+    }
+
     func testEndOfTabStripPlacementKeepsThePreviewOpen() throws {
         let workspace = Workspace()
         let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
