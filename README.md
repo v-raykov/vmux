@@ -2,7 +2,7 @@
 <p align="center">A fork of <a href="https://github.com/manaflow-ai/cmux">cmux</a> that hands files to your terminal editor and resizes panes from the keyboard</p>
 
 <p align="center">
-  <img src="./docs/assets/vmux-social-preview.png" alt="vmux" width="900" />
+  <img src="./docs/assets/vmux-icon.png" alt="vmux" width="180" />
 </p>
 
 vmux is cmux with two additions and a new name. Everything below the divider is cmux's own README, which still describes the app this is built on.
