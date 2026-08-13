@@ -82,10 +82,16 @@ extension ExternalTreeNode {
 
     /// Plans a keyboard resize of the pane's controlling divider: walks the
     /// tree for the splits enclosing `targetPaneId` (innermost first, the
-    /// legacy candidate order), picks the first split matching the resize
-    /// direction's orientation and child side, and converts `amountPixels`
-    /// into a divider delta along that split's axis, clamped to 0.1-0.9.
-    /// Returns `nil` when the pane is absent or no enclosing split matches.
+    /// legacy candidate order), prefers the split that owns the requested edge,
+    /// and converts `amountPixels` into a divider delta along that split's
+    /// axis, clamped to 0.1-0.9.
+    ///
+    /// When the pane sits against an outer boundary on the requested edge it
+    /// has no divider there, so the nearest split on the same axis is moved
+    /// instead: the boundary still travels in the requested direction, which
+    /// keeps the shortcut useful at the edges of the layout rather than inert.
+    /// Returns `nil` when the pane is absent or no enclosing split shares the
+    /// direction's orientation.
     public func resizeDividerAdjustment(
         targetPaneId: String,
         direction: ResizeDirection,
@@ -96,11 +102,9 @@ extension ExternalTreeNode {
         guard trace.containsTarget else { return nil }
 
         let orientationMatches = candidates.filter { $0.orientation == direction.splitOrientation }
-        guard !orientationMatches.isEmpty else { return nil }
-
         guard let candidate = orientationMatches.first(where: {
             $0.paneInFirstChild == direction.requiresPaneInFirstChild
-        }) else {
+        }) ?? orientationMatches.first else {
             return nil
         }
 

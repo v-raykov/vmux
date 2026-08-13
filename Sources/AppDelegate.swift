@@ -14672,6 +14672,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             performEqualizeSplitsShortcut()
             return true
         }
+        for (action, direction) in Self.paneResizeShortcutDirections {
+            if matchConfiguredShortcut(event: event, action: action) {
+                performPaneResizeShortcut(direction: direction)
+                return true
+            }
+        }
         // Canvas layout actions share one executor with the palette, View
         // menu, and the canvas.* socket verbs.
         for action in KeyboardShortcutSettings.Action.canvasActions {

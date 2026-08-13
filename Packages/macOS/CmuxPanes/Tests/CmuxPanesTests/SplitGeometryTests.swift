@@ -147,7 +147,7 @@ struct SplitGeometryTests {
         #expect(adjustment.map { abs($0.position - 0.4) < 0.0001 } == true)
     }
 
-    @Test func resizeRequiresMatchingChildSide() {
+    @Test func resizeFallsBackToTheSameAxisAtAnOuterEdge() throws {
         let splitId = UUID()
         let tree = split(
             splitId,
@@ -156,10 +156,26 @@ struct SplitGeometryTests {
             second: pane("b", x: 300, width: 300)
         )
 
-        // .right requires the target in the first child; "b" is the second.
-        #expect(tree.resizeDividerAdjustment(targetPaneId: "b", direction: .right, amountPixels: 10) == nil)
-        // Vertical resize has no vertical split to control.
+        // "b" sits against the right edge, so it owns no divider there. Rather
+        // than doing nothing, the enclosing split's divider moves right.
+        let adjustment = try #require(
+            tree.resizeDividerAdjustment(targetPaneId: "b", direction: .right, amountPixels: 60)
+        )
+        #expect(adjustment.splitId == splitId)
+        #expect(adjustment.position == 0.6)
+    }
+
+    @Test func resizeStillRequiresAMatchingAxis() {
+        let tree = split(
+            UUID(),
+            orientation: "horizontal",
+            first: pane("a", width: 300),
+            second: pane("b", x: 300, width: 300)
+        )
+
+        // Vertical resize has no vertical split to control, on either side.
         #expect(tree.resizeDividerAdjustment(targetPaneId: "b", direction: .up, amountPixels: 10) == nil)
+        #expect(tree.resizeDividerAdjustment(targetPaneId: "a", direction: .down, amountPixels: 10) == nil)
         // Unknown pane plans nothing.
         #expect(tree.resizeDividerAdjustment(targetPaneId: "zz", direction: .left, amountPixels: 10) == nil)
     }
