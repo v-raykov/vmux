@@ -1,6 +1,18 @@
 # Changelog
 
-All notable changes to cmux are documented here.
+All notable changes to vmux are documented here. Entries below 1.0.0 are inherited from cmux.
+
+## [1.0.0] - 2026-08-13
+
+First vmux release. vmux is a fork of [cmux](https://github.com/manaflow-ai/cmux); versioning restarts here rather than continuing cmux's.
+
+### Added
+- Open the focused file preview or markdown surface in a terminal editor, from a header button or `Cmd+Ctrl+E`. The editor is resolved once by an interactive shell and cached, so opens exec it directly with no shell in between
+- Resize panes from the keyboard with `Cmd+Ctrl+Arrow`. A pane against an outer boundary has no divider there, so the nearest split on the same axis moves instead of the shortcut doing nothing
+- `fileEditor.terminalEditorPlacement` chooses whether the editor opens beside the file surface or at the end of the tab strip
+
+### Changed
+- Rebranded to vmux: the app reports itself as vmux and carries a red chevron icon derived from cmux's own artwork
 
 ## [0.64.22] - 2026-08-03
 
