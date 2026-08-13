@@ -8062,6 +8062,86 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         window.performClose(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
     }
+
+    // MARK: - Pane sizing
+
+    /// A laid-out window whose workspace has real pane frames, which resize
+    /// needs: it converts a pixel delta into a divider position.
+    private struct PaneSizingHarness {
+        let windowId: UUID
+        let manager: TabManager
+        let workspace: Workspace
+    }
+
+    private func makePaneSizingHarness(
+        stacked: Bool
+    ) throws -> (harness: PaneSizingHarness, first: UUID, second: UUID, third: UUID?) {
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow()
+        let hostWindow = try #require(window(withId: windowId))
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try #require(manager.selectedWorkspace)
+        let first = try #require(workspace.focusedPanelId)
+        let orientation: SplitOrientation = stacked ? .vertical : .horizontal
+        let second = try #require(workspace.newTerminalSplit(from: first, orientation: orientation))
+        let third = stacked
+            ? try #require(workspace.newTerminalSplit(from: second.id, orientation: orientation))
+            : nil
+
+        hostWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        return (
+            PaneSizingHarness(windowId: windowId, manager: manager, workspace: workspace),
+            first,
+            second.id,
+            third?.id
+        )
+    }
+
+    private func dividerPositions(_ workspace: Workspace) -> [UUID: CGFloat] {
+        var positions: [UUID: CGFloat] = [:]
+        func walk(_ node: ExternalTreeNode) {
+            guard case .split(let split) = node else { return }
+            if let splitId = UUID(uuidString: split.id) {
+                positions[splitId] = CGFloat(split.dividerPosition)
+            }
+            walk(split.first)
+            walk(split.second)
+        }
+        walk(workspace.bonsplitController.treeSnapshot())
+        return positions
+    }
+
+    @Test
+    func testResizeMovesTheFocusedPaneBoundary() throws {
+        let (harness, left, _, _) = try makePaneSizingHarness(stacked: false)
+        defer { closeWindow(withId: harness.windowId) }
+        let workspace = harness.workspace
+        workspace.focusPanel(left)
+        let before = try #require(dividerPositions(workspace).first?.value)
+
+        #expect(harness.manager.resizeFocusedPane(direction: .right, amountPixels: 40) == .resized)
+
+        let after = try #require(dividerPositions(workspace).first?.value)
+        #expect(after > before, "Growing right moves the boundary toward the second child")
+    }
+
+    @Test
+    func testResizeAtAnOuterEdgeStillMovesABoundary() throws {
+        let (harness, _, right, _) = try makePaneSizingHarness(stacked: false)
+        defer { closeWindow(withId: harness.windowId) }
+        let workspace = harness.workspace
+        workspace.focusPanel(right)
+        let before = try #require(dividerPositions(workspace).first?.value)
+
+        // The focused pane owns no divider on its right, so the enclosing
+        // split's divider moves instead of the shortcut doing nothing.
+        #expect(harness.manager.resizeFocusedPane(direction: .right, amountPixels: 40) == .resized)
+
+        let after = try #require(dividerPositions(workspace).first?.value)
+        #expect(after > before)
+    }
 }
 
 @MainActor
