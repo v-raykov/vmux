@@ -1,3 +1,31 @@
+<h1 align="center">vmux</h1>
+<p align="center">A fork of <a href="https://github.com/manaflow-ai/cmux">cmux</a> that hands files to your terminal editor and resizes panes from the keyboard</p>
+
+vmux is cmux with two additions and a new name. Everything below the divider is cmux's own README, which still describes the app this is built on.
+
+## What's different
+
+- **Open in terminal editor** — `Cmd+Ctrl+E`, or the terminal button in a file preview or markdown header, opens that file in `$VISUAL`/`$EDITOR` (falling back to `vi`) inside a terminal surface, so a TUI editor like nvim gets the PTY it needs. The editor is resolved once by an interactive shell and cached, so opening is immediate instead of paying shell startup every time. Quitting the editor takes you back to the file. `fileEditor.terminalEditorPlacement` chooses whether it opens beside the file or at the end of the tab strip.
+- **Keyboard pane resize** — `Cmd+Ctrl+Arrow` moves the focused pane's boundary. A pane against the edge of the layout owns no divider on that side, so the nearest split on the same axis moves instead of the shortcut doing nothing.
+
+## Install
+
+```sh
+brew trust v-raykov/vmux
+brew install --cask v-raykov/vmux/vmux
+```
+
+Homebrew refuses casks from third-party taps until they are trusted, hence the first command. vmux installs alongside cmux — its own bundle identifier, its own sockets, no Sparkle feed — so the two run side by side and vmux can never update itself into cmux.
+
+The build is ad-hoc signed rather than notarized, so you are trusting it because you trust its author, not because Apple has verified it. To verify it yourself, build from source instead:
+
+```sh
+./scripts/setup.sh
+./scripts/build-vmux.sh --install
+```
+
+---
+
 <h1 align="center">cmux</h1>
 <p align="center">A Ghostty-based macOS terminal with vertical tabs and notifications for AI coding agents</p>
 
