@@ -2,6 +2,11 @@
 
 All notable changes to vmux are documented here. Entries below 1.0.0 are inherited from cmux.
 
+## [1.0.1] - 2026-08-13
+
+### Fixed
+- Agents in vmux launched without their cmux integration, printing output with no composer or prompt. vmux identified itself as `com.vmuxterm.app`, which no socket variant recognizes, so it fell back to the stable variant: it shared the installed cmux's control socket and took its socket secret from the keychain, which an ad-hoc signature cannot hold. Failing that check makes `cmux-claude-wrapper` drop its hooks and exec the agent directly. vmux now identifies itself as `com.cmuxterm.app.staging.vmux`, which carries a tag-scoped socket and an ephemeral secret
+
 ## [1.0.0] - 2026-08-13
 
 First vmux release. vmux is a fork of [cmux](https://github.com/manaflow-ai/cmux); versioning restarts here rather than continuing cmux's.

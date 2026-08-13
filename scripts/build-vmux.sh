@@ -18,7 +18,13 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
 APP_NAME="vmux"
-BUNDLE_ID="com.vmuxterm.app"
+# A staging-flavored identifier, not an invented one. SocketPathMarkerFiles.variant
+# maps any unrecognized identifier to .stable, which shares the installed cmux's
+# socket and marker files, and TerminalController+SocketClientCapability then backs
+# the socket secret with the keychain, which an ad-hoc signature cannot hold. The
+# `.staging.<slug>` form gets a tag-scoped socket and an ephemeral secret instead.
+BUNDLE_ID="com.cmuxterm.app.staging.${APP_NAME}"
+SOCKET_PATH="/tmp/cmux-staging-${APP_NAME}.sock"
 DERIVED_DATA="/tmp/vmux-release"
 INSTALL=0
 LAUNCH=0
@@ -77,12 +83,11 @@ plist_set CFBundleIdentifier string "$BUNDLE_ID"
 plist_set SUEnableAutomaticChecks bool false
 /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$INFO_PLIST" 2>/dev/null || true
 
-# The Release binary defaults to the per-user stable sockets, which an installed
-# cmux is already using. Isolate them the way the staging build does.
-APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
-plist_set "LSEnvironment:CMUX_BUNDLE_ID" string "$BUNDLE_ID"
-plist_set "LSEnvironment:CMUX_SOCKET_PATH" string "/tmp/vmux.sock"
-plist_set "LSEnvironment:CMUXD_UNIX_PATH" string "${APP_SUPPORT_DIR}/cmuxd-vmux.sock"
+# Socket isolation follows from the identifier alone. An LSEnvironment
+# CMUX_SOCKET_PATH would be refused by shouldHonorSocketPathOverride yet still be
+# inherited by every child, and cmux-claude-wrapper drops its hooks when that path
+# is not a live socket.
+/usr/libexec/PlistBuddy -c "Delete :LSEnvironment" "$INFO_PLIST" 2>/dev/null || true
 
 # Editing a bundle invalidates its signature, so re-sign ad hoc.
 codesign --force --deep --sign - "$APP_PATH" >/dev/null 2>&1 || true
@@ -103,7 +108,7 @@ echo "    bundle id: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$
 echo "    name:      $(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$INFO_PLIST")"
 echo "    version:   $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$INFO_PLIST") ($(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$INFO_PLIST"))"
 echo "    sparkle:   $(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$INFO_PLIST" 2>/dev/null || echo 'feed removed, checks disabled')"
-echo "    socket:    $(/usr/libexec/PlistBuddy -c 'Print :LSEnvironment:CMUX_SOCKET_PATH' "$INFO_PLIST")"
+echo "    socket:    ${SOCKET_PATH}"
 echo "==> App"
 echo "    ${APP_PATH}"
 
